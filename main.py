@@ -4,64 +4,99 @@ import easyocr
 import cv2
 import numpy as np
 import re
-import os
 
 app = FastAPI()
 
-# inicia OCR uma vez só (IMPORTANTE pra performance)
 reader = easyocr.Reader(['en'])
 
 @app.get("/")
 def home():
     return {"status": "ok"}
 
+def preprocess(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.convertScaleAbs(gray, alpha=2, beta=0)
+    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    return thresh
+
+def corrigir_texto(texto):
+    texto = texto.replace("O", "0")
+    texto = texto.replace("I", "1")
+    texto = texto.replace("l", "1")
+    texto = texto.replace("00", "%")  # tentativa simples %
+    return texto
+
 @app.post("/analisar")
 async def analisar(file: UploadFile):
     try:
-        # salvar imagem temporária
-        temp_path = f"/tmp/{file.filename}"
+        path = f"/tmp/{file.filename}"
 
-        with open(temp_path, "wb") as buffer:
+        with open(path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # carregar imagem
-        img = cv2.imread(temp_path)
+        img = cv2.imread(path)
 
         if img is None:
             return {"erro": "Imagem inválida"}
 
-        # 🔥 OCR
-        results = reader.readtext(img)
+        # 🔥 preprocess
+        proc = preprocess(img)
 
-        texto_detectado = []
-        progresso = None
+        # 🔍 OCR
+        results = reader.readtext(proc)
 
-        for (bbox, text, prob) in results:
-            texto_detectado.append(text)
+        textos = []
+        for (_, text, _) in results:
+            text = corrigir_texto(text)
+            textos.append(text)
 
-            # procura padrão tipo 0/6, 1/6 etc
-            match = re.search(r'(\d)/(\d)', text)
+        texto_full = " ".join(textos).lower()
+
+        # 🗺️ MAPA
+        mapa = "Desconhecido"
+        if "plano divino" in texto_full:
+            mapa = "Plano Divino"
+        elif "zona proibida" in texto_full:
+            mapa = "Zona Proibida"
+        elif "sant" in texto_full:
+            mapa = "Santuário"
+
+        # 🎯 ESTÁGIO (baseado em "Progr")
+        estagio = None
+        for i, text in enumerate(textos):
+            if "progr" in text.lower():
+                if i > 0:
+                    anterior = textos[i - 1]
+                    match = re.search(r'(\d+)', anterior)
+                    if match:
+                        estagio = int(match.group(1))
+
+        # 🔢 PROGRESSO (ignora completos)
+        candidatos = []
+
+        for text in textos:
+            match = re.search(r'(\d+)/(\d+)', text)
             if match:
                 atual = int(match.group(1))
                 total = int(match.group(2))
-                progresso = f"{atual}/{total}"
 
-        # 🎯 converter progresso em nível
+                if atual != total:  # ignora 9/9 etc
+                    candidatos.append((atual, total))
+
+        progresso = None
         nivel = None
-        if progresso:
-            atual, total = map(int, progresso.split("/"))
-            nivel = atual + 1  # regra: 0/6 = nível 1
 
-        # 🧠 (placeholder futuro)
-        mapa = "Desconhecido"
-        chefe = "Desconhecido"
+        if candidatos:
+            atual, total = sorted(candidatos, key=lambda x: x[0])[0]
+            progresso = f"{atual}/{total}"
+            nivel = atual + 1
 
         return {
             "mapa": mapa,
-            "chefe": chefe,
+            "estagio": estagio,
             "progresso": progresso,
             "nivel": nivel,
-            "texto_detectado": texto_detectado
+            "texto_detectado": textos
         }
 
     except Exception as e:
