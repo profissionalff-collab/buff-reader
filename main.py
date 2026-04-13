@@ -4,11 +4,15 @@ import cv2
 import pytesseract
 import re
 
+# 🔥 garante que acha o tesseract no Railway
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 app = FastAPI()
 
 @app.get("/")
 def home():
     return {"status": "ok"}
+
 
 def preprocess(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -19,11 +23,13 @@ def preprocess(img):
 
     return thresh
 
+
 def limpar_texto(texto):
     texto = texto.replace("O", "0")
     texto = texto.replace("I", "1")
     texto = texto.replace("l", "1")
     return texto
+
 
 @app.post("/analisar")
 async def analisar(file: UploadFile):
@@ -40,23 +46,26 @@ async def analisar(file: UploadFile):
 
         h, w = img.shape[:2]
 
-        # 🔥 corta só região útil (centro)
+        # 🔥 corta região central (onde ficam os buffs)
         img = img[int(h*0.15):int(h*0.85), int(w*0.15):int(w*0.85)]
 
-        # 🔥 reduz resolução (acelera MUITO)
+        # 🔥 reduz resolução (performance absurda)
         img = cv2.resize(img, (800, 600))
 
         proc = preprocess(img)
 
-        # 🔥 OCR leve
-        texto = pytesseract.image_to_string(proc)
+        # 🔥 OCR otimizado
+        texto = pytesseract.image_to_string(proc, config="--psm 6")
 
         texto = limpar_texto(texto)
         linhas = texto.split("\n")
 
-        # 🗺️ MAPA
-        texto_full = texto.lower()
+        # 🔥 filtra só o que interessa
+        linhas = [l for l in linhas if "/" in l or "progr" in l.lower()]
 
+        texto_full = " ".join(linhas).lower()
+
+        # 🗺️ MAPA
         mapa = "Desconhecido"
         if "plano divino" in texto_full:
             mapa = "Plano Divino"
@@ -74,7 +83,7 @@ async def analisar(file: UploadFile):
                     if match:
                         estagio = int(match.group(1))
 
-        # 🔢 PROGRESSO (ignora completos)
+        # 🔢 PROGRESSO (só incompletos)
         candidatos = []
 
         for linha in linhas:
@@ -83,7 +92,7 @@ async def analisar(file: UploadFile):
                 atual = int(match.group(1))
                 total = int(match.group(2))
 
-                if atual != total:  # ignora 9/9 etc
+                if atual < total:  # 🔥 regra correta
                     candidatos.append((atual, total))
 
         progresso = None
