@@ -24,68 +24,75 @@ def extrair_bosses(path_img):
         raise Exception("Imagem inválida")
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
     h, w = gray.shape
 
     boss_files = []
     count = 0
 
-    # 🔥 tamanho do card (ajusta se precisar)
-    step = 120
+    # -------------------------------
+    # 🔥 PASSADA 1 — CONTORNO NORMAL
+    # -------------------------------
+    gray_blur = cv2.GaussianBlur(gray, (3, 3), 0)
+    edges = cv2.Canny(gray_blur, 30, 100)
 
-    # 🔥 varredura (grid)
-    for y in range(0, h - step, 40):
-        for x in range(0, w - step, 40):
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            crop = img[y:y+step, x:x+step]
-            crop_gray = gray[y:y+step, x:x+step]
+    for cnt in contours:
+        x, y, w2, h2 = cv2.boundingRect(cnt)
+        ratio = w2 / h2
 
-            if crop.shape[0] != step or crop.shape[1] != step:
+        if 80 < w2 < 300 and 80 < h2 < 300 and 0.7 < ratio < 1.3:
+
+            crop = img[y:y+h2, x:x+w2]
+            crop_gray = gray[y:y+h2, x:x+w2]
+
+            if crop.shape[0] == 0:
                 continue
 
-            # -----------------------
-            # 🔥 FILTROS INTELIGENTES
-            # -----------------------
+            if not tem_check(crop_gray):
+                filename = f"/tmp/boss_{count}.png"
+                cv2.imwrite(filename, crop)
 
-            # contraste mínimo (remove fundo)
-            std = np.std(crop_gray)
-            if std < 25:
+                boss_files.append(filename)
+                count += 1
+
+    # --------------------------------------
+    # 🔥 PASSADA 2 — TOPO (RESOLVE NYX)
+    # --------------------------------------
+    top_img = img[0:int(h * 0.35), 0:w]
+    top_gray = gray[0:int(h * 0.35), 0:w]
+
+    top_blur = cv2.GaussianBlur(top_gray, (3, 3), 0)
+    edges_top = cv2.Canny(top_blur, 30, 100)
+
+    contours_top, _ = cv2.findContours(edges_top, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours_top:
+        x, y, w2, h2 = cv2.boundingRect(cnt)
+        ratio = w2 / h2
+
+        if 80 < w2 < 300 and 80 < h2 < 300 and 0.7 < ratio < 1.3:
+
+            crop = top_img[y:y+h2, x:x+w2]
+            crop_gray = top_gray[y:y+h2, x:x+w2]
+
+            if crop.shape[0] == 0:
                 continue
 
-            # densidade de borda (remove linha)
-            edges = cv2.Canny(crop_gray, 50, 150)
-            edge_density = np.sum(edges > 0) / crop_gray.size
-            if edge_density < 0.02:
-                continue
+            if not tem_check(crop_gray):
+                filename = f"/tmp/boss_top_{count}.png"
+                cv2.imwrite(filename, crop)
 
-            # brilho médio (remove UI vazia)
-            mean_color = np.mean(crop)
-            if mean_color < 40 or mean_color > 200:
-                continue
+                boss_files.append(filename)
+                count += 1
 
-            # -----------------------
-            # 🔥 IGNORA COMPLETOS
-            # -----------------------
-            if tem_check(crop_gray):
-                continue
-
-            # -----------------------
-            # 🔥 SALVA
-            # -----------------------
-            filename = f"/tmp/boss_{count}.png"
-            cv2.imwrite(filename, crop)
-
-            boss_files.append(filename)
-            count += 1
-
-    # -----------------------
+    # --------------------------------------
     # 🔥 REMOVE DUPLICADOS
-    # -----------------------
+    # --------------------------------------
     unique_files = []
 
     for f in boss_files:
         img1 = cv2.imread(f, 0)
-
         is_duplicate = False
 
         for uf in unique_files:
@@ -99,9 +106,9 @@ def extrair_bosses(path_img):
         if not is_duplicate:
             unique_files.append(f)
 
-    # -----------------------
+    # --------------------------------------
     # 🔥 ZIP FINAL
-    # -----------------------
+    # --------------------------------------
     zip_path = "/tmp/bosses.zip"
 
     with zipfile.ZipFile(zip_path, 'w') as zipf:
