@@ -5,8 +5,11 @@ import numpy as np
 
 app = FastAPI()
 
-# 🔥 carrega template do check
+# 🔥 carrega template (garante que existe)
 check_template = cv2.imread("imgs/check.jpg", 0)
+
+if check_template is None:
+    raise Exception("check.jpg não encontrado em /imgs")
 
 
 @app.get("/")
@@ -15,8 +18,22 @@ def home():
 
 
 def tem_check(img_gray):
-    res = cv2.matchTemplate(img_gray, check_template, cv2.TM_CCOEFF_NORMED)
-    return np.max(res) > 0.6  # ajuste fino
+    try:
+        h_img, w_img = img_gray.shape
+        h_tmp, w_tmp = check_template.shape
+
+        # 🔥 evita erro do OpenCV
+        if h_img < h_tmp or w_img < w_tmp:
+            return False
+
+        # 🔥 aplica template matching
+        res = cv2.matchTemplate(img_gray, check_template, cv2.TM_CCOEFF_NORMED)
+        max_val = np.max(res)
+
+        return max_val > 0.6  # ajuste fino depois
+
+    except:
+        return False
 
 
 @app.post("/analisar")
@@ -28,16 +45,20 @@ async def analisar(file: UploadFile):
             shutil.copyfileobj(file.file, buffer)
 
         img = cv2.imread(path)
+
+        if img is None:
+            return {"erro": "Imagem inválida"}
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 🔥 COORDENADAS FIXAS (ajustar 1x só)
+        # 🔥 COORDENADAS FIXAS (AJUSTAR UMA VEZ)
         bosses = [
-            {"nome": "boss1", "x": 900, "y": 150},
-            {"nome": "boss2", "x": 800, "y": 300},
-            {"nome": "boss3", "x": 1000, "y": 300},
-            {"nome": "boss4", "x": 700, "y": 450},
-            {"nome": "boss5", "x": 900, "y": 450},
-            {"nome": "boss6", "x": 1100, "y": 450},
+            {"nome": "boss_topo_direita", "x": 950, "y": 150},
+            {"nome": "boss_centro", "x": 850, "y": 300},
+            {"nome": "boss_direita", "x": 1050, "y": 300},
+            {"nome": "boss_esquerda", "x": 750, "y": 450},
+            {"nome": "boss_meio", "x": 950, "y": 450},
+            {"nome": "boss_direita2", "x": 1150, "y": 450},
         ]
 
         faltando = []
@@ -46,7 +67,7 @@ async def analisar(file: UploadFile):
             x = boss["x"]
             y = boss["y"]
 
-            # tamanho fixo do card
+            # 🔥 tamanho do card
             crop = gray[y:y+120, x:x+120]
 
             if crop.shape[0] == 0 or crop.shape[1] == 0:
