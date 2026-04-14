@@ -2,12 +2,10 @@ from fastapi import FastAPI, UploadFile
 import shutil
 import easyocr
 import cv2
-import numpy as np
 import re
 
 app = FastAPI()
 
-# 🔥 inicia OCR uma vez só (importantíssimo)
 reader = easyocr.Reader(['en'], gpu=False)
 
 
@@ -19,9 +17,7 @@ def home():
 def preprocess(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.convertScaleAbs(gray, alpha=2, beta=0)
-
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-
     return thresh
 
 
@@ -29,6 +25,12 @@ def limpar_texto(texto):
     texto = texto.replace("O", "0")
     texto = texto.replace("I", "1")
     texto = texto.replace("l", "1")
+    return texto
+
+
+def corrigir_numeros(texto):
+    # erro comum do OCR
+    texto = texto.replace("/1", "/6")
     return texto
 
 
@@ -47,28 +49,34 @@ async def analisar(file: UploadFile):
 
         h, w = img.shape[:2]
 
-        # 🔥 corta área útil
-        img = img[int(h*0.15):int(h*0.85), int(w*0.15):int(w*0.85)]
+        # 🔥 CORTE MAIS PRECISO (região dos buffs)
+        img = img[int(h*0.25):int(h*0.65), int(w*0.35):int(w*0.75)]
 
-        # 🔥 reduz resolução (MUITO importante)
+        # 🔥 reduz resolução
         img = cv2.resize(img, (800, 600))
 
         proc = preprocess(img)
 
-        # 🔥 OCR
+        # 🔍 OCR
         results = reader.readtext(proc)
 
         textos = []
+
         for (_, text, _) in results:
+            if len(text) < 3:
+                continue
+
             text = limpar_texto(text)
+            text = corrigir_numeros(text)
+
             textos.append(text)
 
-        # 🔥 filtra só o necessário
+        # 🔥 filtra só relevantes
         textos = [t for t in textos if "/" in t or "progr" in t.lower()]
 
         texto_full = " ".join(textos).lower()
 
-        # 🗺️ mapa
+        # 🗺️ MAPA
         mapa = "Desconhecido"
         if "plano divino" in texto_full:
             mapa = "Plano Divino"
@@ -77,7 +85,7 @@ async def analisar(file: UploadFile):
         elif "sant" in texto_full:
             mapa = "Santuário"
 
-        # 🎯 estágio
+        # 🎯 ESTÁGIO
         estagio = None
         for i, text in enumerate(textos):
             if "progr" in text.lower():
@@ -86,11 +94,11 @@ async def analisar(file: UploadFile):
                     if match:
                         estagio = int(match.group(1))
 
-        # 🔢 progresso válido
+        # 🔢 PROGRESSO (filtrado forte)
         candidatos = []
 
         for text in textos:
-            match = re.search(r'(\d+)/(\d+)', text)
+            match = re.search(r'(\d+)/(6|7|9)', text)
             if match:
                 atual = int(match.group(1))
                 total = int(match.group(2))
@@ -110,7 +118,8 @@ async def analisar(file: UploadFile):
             "mapa": mapa,
             "estagio": estagio,
             "progresso": progresso,
-            "nivel": nivel
+            "nivel": nivel,
+            "debug_textos": textos  # 🔥 ajuda debug
         }
 
     except Exception as e:
