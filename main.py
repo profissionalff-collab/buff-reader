@@ -1,13 +1,15 @@
 from fastapi import FastAPI, UploadFile
 import shutil
+import easyocr
 import cv2
-import pytesseract
+import numpy as np
 import re
 
-# garante path do tesseract
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-
 app = FastAPI()
+
+# 🔥 inicia OCR uma vez só (importantíssimo)
+reader = easyocr.Reader(['en'], gpu=False)
+
 
 @app.get("/")
 def home():
@@ -17,7 +19,9 @@ def home():
 def preprocess(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.convertScaleAbs(gray, alpha=2, beta=0)
+
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
     return thresh
 
 
@@ -43,23 +47,28 @@ async def analisar(file: UploadFile):
 
         h, w = img.shape[:2]
 
-        # corta área útil
+        # 🔥 corta área útil
         img = img[int(h*0.15):int(h*0.85), int(w*0.15):int(w*0.85)]
 
-        # reduz resolução
+        # 🔥 reduz resolução (MUITO importante)
         img = cv2.resize(img, (800, 600))
 
         proc = preprocess(img)
 
-        texto = pytesseract.image_to_string(proc, config="--psm 6")
-        texto = limpar_texto(texto)
+        # 🔥 OCR
+        results = reader.readtext(proc)
 
-        linhas = texto.split("\n")
-        linhas = [l for l in linhas if "/" in l or "progr" in l.lower()]
+        textos = []
+        for (_, text, _) in results:
+            text = limpar_texto(text)
+            textos.append(text)
 
-        texto_full = " ".join(linhas).lower()
+        # 🔥 filtra só o necessário
+        textos = [t for t in textos if "/" in t or "progr" in t.lower()]
 
-        # mapa
+        texto_full = " ".join(textos).lower()
+
+        # 🗺️ mapa
         mapa = "Desconhecido"
         if "plano divino" in texto_full:
             mapa = "Plano Divino"
@@ -68,20 +77,20 @@ async def analisar(file: UploadFile):
         elif "sant" in texto_full:
             mapa = "Santuário"
 
-        # estágio
+        # 🎯 estágio
         estagio = None
-        for i, linha in enumerate(linhas):
-            if "progr" in linha.lower():
+        for i, text in enumerate(textos):
+            if "progr" in text.lower():
                 if i > 0:
-                    match = re.search(r'(\d+)', linhas[i-1])
+                    match = re.search(r'(\d+)', textos[i-1])
                     if match:
                         estagio = int(match.group(1))
 
-        # progresso válido
+        # 🔢 progresso válido
         candidatos = []
 
-        for linha in linhas:
-            match = re.search(r'(\d+)/(\d+)', linha)
+        for text in textos:
+            match = re.search(r'(\d+)/(\d+)', text)
             if match:
                 atual = int(match.group(1))
                 total = int(match.group(2))
