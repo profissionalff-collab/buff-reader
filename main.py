@@ -16,8 +16,21 @@ def home():
 
 def preprocess(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # melhora contraste
     gray = cv2.convertScaleAbs(gray, alpha=2, beta=0)
-    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+    # blur leve
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    # threshold adaptativo (melhor)
+    thresh = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11, 2
+    )
+
     return thresh
 
 
@@ -25,12 +38,6 @@ def limpar_texto(texto):
     texto = texto.replace("O", "0")
     texto = texto.replace("I", "1")
     texto = texto.replace("l", "1")
-    return texto
-
-
-def corrigir_numeros(texto):
-    # erro comum do OCR
-    texto = texto.replace("/1", "/6")
     return texto
 
 
@@ -42,32 +49,38 @@ async def analisar(file: UploadFile):
         with open(path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        img = cv2.imread(path)
+        img_original = cv2.imread(path)
 
-        if img is None:
+        if img_original is None:
             return {"erro": "Imagem inválida"}
 
-        h, w = img.shape[:2]
+        h, w = img_original.shape[:2]
 
-        # 🔥 CORTE MAIS PRECISO (região dos buffs)
-        img = img[int(h*0.25):int(h*0.65), int(w*0.35):int(w*0.75)]
+        # 🔥 CORTE SEGURO (não perde info)
+        img = img_original[int(h*0.20):int(h*0.70), int(w*0.30):int(w*0.80)]
 
-        # 🔥 reduz resolução
+        # 🔥 resize (performance)
         img = cv2.resize(img, (800, 600))
 
         proc = preprocess(img)
+
+        # 🔥 DEBUG (opcional, mas útil)
+        cv2.imwrite("/tmp/debug_crop.png", img)
+        cv2.imwrite("/tmp/debug_proc.png", proc)
 
         # 🔍 OCR
         results = reader.readtext(proc)
 
         textos = []
 
-        for (_, text, _) in results:
-            if len(text) < 3:
+        for (_, text, prob) in results:
+            if prob < 0.3:
                 continue
 
             text = limpar_texto(text)
-            text = corrigir_numeros(text)
+
+            if len(text) < 3:
+                continue
 
             textos.append(text)
 
@@ -94,17 +107,21 @@ async def analisar(file: UploadFile):
                     if match:
                         estagio = int(match.group(1))
 
-        # 🔢 PROGRESSO (filtrado forte)
+        # 🔢 PROGRESSO (robusto)
         candidatos = []
 
         for text in textos:
-            match = re.search(r'(\d+)/(6|7|9)', text)
-            if match:
-                atual = int(match.group(1))
-                total = int(match.group(2))
+            matches = re.findall(r'(\d+)/(6|7|9)', text)
 
-                if atual < total:
-                    candidatos.append((atual, total))
+            for m in matches:
+                try:
+                    atual = int(m[0])
+                    total = int(m[1])
+
+                    if atual < total:
+                        candidatos.append((atual, total))
+                except:
+                    pass
 
         progresso = None
         nivel = None
@@ -119,7 +136,7 @@ async def analisar(file: UploadFile):
             "estagio": estagio,
             "progresso": progresso,
             "nivel": nivel,
-            "debug_textos": textos  # 🔥 ajuda debug
+            "debug_textos": textos
         }
 
     except Exception as e:
