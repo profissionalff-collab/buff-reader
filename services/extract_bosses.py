@@ -3,12 +3,17 @@ import numpy as np
 import zipfile
 import os
 
-# 🔥 carrega template do check
+# 🔥 carregar template do check
 check_template = cv2.imread("imgs/check.jpg", 0)
+
+if check_template is None:
+    raise Exception("check.jpg não encontrado em imgs/check.jpg")
 
 
 def tem_check(img_gray):
-    """Verifica se o boss está concluído (tem check azul)"""
+    """
+    Verifica se o boss está concluído (tem check azul)
+    """
     try:
         img_gray = cv2.resize(img_gray, (60, 60))
         template = cv2.resize(check_template, (30, 30))
@@ -21,21 +26,26 @@ def tem_check(img_gray):
 
 def extrair_bosses(path_img):
     """
-    Recebe imagem, detecta bosses SEM check e retorna caminho do zip
+    Recebe uma imagem do jogo e:
+    - Detecta os cards dos bosses
+    - Remove os que já têm check
+    - Retorna um ZIP com os bosses restantes
     """
 
     img = cv2.imread(path_img)
+
+    if img is None:
+        raise Exception("Imagem inválida")
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 🔥 DETECÇÃO ROBUSTA (resolve Nyx)
-    edges = cv2.Canny(gray, 50, 150)
+    # 🔥 leve blur melhora contorno
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresh = cv2.threshold(blur, 60, 255, cv2.THRESH_BINARY_INV)
+    # 🔥 CANNY AJUSTADO (funciona melhor pro seu caso)
+    edges = cv2.Canny(gray, 30, 100)
 
-    combined = cv2.bitwise_or(edges, thresh)
-
-    contours, _ = cv2.findContours(combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     boss_files = []
     count = 0
@@ -45,16 +55,16 @@ def extrair_bosses(path_img):
 
         ratio = w / h
 
-        # 🔥 filtro leve (não matar boss)
+        # 🔥 filtro leve (não matar boss tipo Nyx)
         if 80 < w < 300 and 80 < h < 300 and 0.7 < ratio < 1.3:
 
             crop = img[y:y+h, x:x+w]
             crop_gray = gray[y:y+h, x:x+w]
 
-            if crop.shape[0] == 0:
+            if crop.shape[0] == 0 or crop.shape[1] == 0:
                 continue
 
-            # 🔥 pega só bosses NÃO concluídos
+            # 🔥 ignorar bosses já concluídos
             if not tem_check(crop_gray):
 
                 filename = f"/tmp/boss_{count}.png"
@@ -63,11 +73,13 @@ def extrair_bosses(path_img):
                 boss_files.append(filename)
                 count += 1
 
-    # 🔥 cria zip
+    # 🔥 criar zip com os bosses encontrados
     zip_path = "/tmp/bosses.zip"
 
     with zipfile.ZipFile(zip_path, 'w') as zipf:
         for f in boss_files:
             zipf.write(f, os.path.basename(f))
+
+    print(f"Bosses extraídos: {count}")
 
     return zip_path
