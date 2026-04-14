@@ -7,12 +7,11 @@ import re
 
 app = FastAPI()
 
-# 🔥 OCR leve só pra número
+# 🔥 OCR leve
 reader = easyocr.Reader(['en'], gpu=False)
 
 # 🔥 template check
 check_template = cv2.imread("imgs/check.jpg", 0)
-
 if check_template is None:
     raise Exception("check.jpg não encontrado em /imgs")
 
@@ -21,6 +20,41 @@ if check_template is None:
 def home():
     return {"status": "ok"}
 
+
+# -------------------------------
+# 🔧 UTIL
+# -------------------------------
+
+def crop_rel(img, x1, y1, x2, y2):
+    h, w = img.shape[:2]
+    return img[int(y1*h):int(y2*h), int(x1*w):int(x2*w)]
+
+
+# -------------------------------
+# 🗺️ MAPA
+# -------------------------------
+
+def detectar_mapa(img):
+    left = crop_rel(img, 0.0, 0.0, 0.3, 1.0)
+    gray = cv2.cvtColor(left, cv2.COLOR_BGR2GRAY)
+
+    results = reader.readtext(gray)
+
+    texto = " ".join([r[1].lower() for r in results])
+
+    if "plano" in texto:
+        return "Plano Divino"
+    elif "zona" in texto:
+        return "Zona Proibida"
+    elif "sant" in texto:
+        return "Santuário"
+
+    return "Desconhecido"
+
+
+# -------------------------------
+# ✔ CHECK
+# -------------------------------
 
 def tem_check(img_gray):
     try:
@@ -33,9 +67,12 @@ def tem_check(img_gray):
         return False
 
 
+# -------------------------------
+# 🔢 PROGRESSO
+# -------------------------------
+
 def extrair_progresso(crop):
     try:
-        # 🔥 área onde fica o número dentro do card
         numero_area = crop[70:120, 10:120]
 
         numero_area = cv2.cvtColor(numero_area, cv2.COLOR_BGR2GRAY)
@@ -57,6 +94,10 @@ def extrair_progresso(crop):
         return None, None
 
 
+# -------------------------------
+# 🚀 MAIN
+# -------------------------------
+
 @app.post("/analisar")
 async def analisar(file: UploadFile):
     try:
@@ -72,21 +113,26 @@ async def analisar(file: UploadFile):
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 🔥 MAPA DE BOSSES (AJUSTAR UMA VEZ)
+        # 🗺️ detectar mapa
+        mapa = detectar_mapa(img)
+
+        # 🔥 posições relativas (ajustar fino depois)
         bosses = [
-            {"nome": "E-Bolt 5", "x": 750, "y": 450},
-            {"nome": "Centro 1", "x": 950, "y": 450},
-            {"nome": "Direita 1", "x": 1150, "y": 450},
-            {"nome": "Topo", "x": 950, "y": 150},
-            {"nome": "Centro Esquerda", "x": 850, "y": 300},
-            {"nome": "Centro Direita", "x": 1050, "y": 300},
+            {"nome": "E-Bolt 5", "x": 0.60, "y": 0.65},
+            {"nome": "Centro 1", "x": 0.70, "y": 0.65},
+            {"nome": "Direita 1", "x": 0.80, "y": 0.65},
+            {"nome": "Topo", "x": 0.70, "y": 0.20},
+            {"nome": "Centro Esq", "x": 0.60, "y": 0.40},
+            {"nome": "Centro Dir", "x": 0.80, "y": 0.40},
         ]
 
         resultados = []
 
+        h, w = img.shape[:2]
+
         for boss in bosses:
-            x = boss["x"]
-            y = boss["y"]
+            x = int(boss["x"] * w)
+            y = int(boss["y"] * h)
 
             crop = img[y:y+120, x:x+120]
 
@@ -99,8 +145,8 @@ async def analisar(file: UploadFile):
 
                 atual, total = extrair_progresso(crop)
 
-                nivel = None
                 progresso = None
+                nivel = None
 
                 if atual is not None:
                     progresso = f"{atual}/{total}"
@@ -113,6 +159,7 @@ async def analisar(file: UploadFile):
                 })
 
         return {
+            "mapa": mapa,
             "faltando": resultados
         }
 
