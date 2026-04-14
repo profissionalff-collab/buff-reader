@@ -56,7 +56,7 @@ def extrair_bosses(path_img):
         ratio = w / h
 
         # 🔥 filtro leve (não matar boss tipo Nyx)
-        if 80 < w < 300 and 80 < h < 300 and 0.7 < ratio < 1.3:
+        if 60 < w < 280 and 60 < h < 280 and 0.7 < ratio < 1.3:
 
             crop = img[y:y+h, x:x+w]
             crop_gray = gray[y:y+h, x:x+w]
