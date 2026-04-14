@@ -115,14 +115,14 @@ async def analisar(file: UploadFile):
                     continue
 
                 # 🔥 remove fundo vazio
-                media = np.mean(crop_gray)
-                if media < 30 or media > 220:
-                    continue
+                #media = np.mean(crop_gray)
+                #if media < 30 or media > 220:
+                #   continue
 
                 # 🔥 remove áreas sem detalhe
-                std = np.std(crop_gray)
-                if std < 20:
-                    continue
+                #std = np.std(crop_gray)
+                #if std < 20:
+                #    continue
 
                 if not tem_check(crop_gray):
 
@@ -175,13 +175,13 @@ async def extrair(file: UploadFile):
                 if crop.shape[0] == 0:
                     continue
 
-                media = np.mean(crop_gray)
-                if media < 30 or media > 220:
-                    continue
+                #media = np.mean(crop_gray)
+                #if media < 30 or media > 220:
+                 #   continue
 
-                std = np.std(crop_gray)
-                if std < 20:
-                    continue
+                #std = np.std(crop_gray)
+                #if std < 20:
+                 #   continue
 
                 if not tem_check(crop_gray):
 
