@@ -12,19 +12,13 @@ def home():
 
 
 def tem_check_azul(img):
-    # converte pra HSV (melhor pra cor)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # faixa de azul
     lower_blue = np.array([90, 50, 50])
     upper_blue = np.array([140, 255, 255])
 
     mask = cv2.inRange(hsv, lower_blue, upper_blue)
-
-    # conta pixels azuis
-    azul_pixels = cv2.countNonZero(mask)
-
-    return azul_pixels > 50  # ajuste fino depois
+    return cv2.countNonZero(mask) > 80
 
 
 @app.post("/analisar")
@@ -42,30 +36,43 @@ async def analisar(file: UploadFile):
 
         h, w = img.shape[:2]
 
-        # 🔥 cortar área dos bosses (ajustável)
-        area = img[int(h*0.25):int(h*0.75), int(w*0.30):int(w*0.80)]
+        # 🔥 cortar área central onde ficam os bosses
+        area = img[int(h*0.15):int(h*0.85), int(w*0.25):int(w*0.85)]
 
-        # dividir grid 3x3
-        rows, cols = 3, 3
-        cell_h = area.shape[0] // rows
-        cell_w = area.shape[1] // cols
+        gray = cv2.cvtColor(area, cv2.COLOR_BGR2GRAY)
 
-        faltando = []
+        # detectar bordas
+        edges = cv2.Canny(gray, 50, 150)
 
-        for i in range(rows):
-            for j in range(cols):
-                y1 = i * cell_h
-                y2 = (i + 1) * cell_h
-                x1 = j * cell_w
-                x2 = (j + 1) * cell_w
+        # encontrar contornos
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-                cell = area[y1:y2, x1:x2]
+        bosses_detectados = []
 
-                if not tem_check_azul(cell):
-                    faltando.append((i, j))
+        for cnt in contours:
+            x, y, w_box, h_box = cv2.boundingRect(cnt)
+
+            # 🔥 filtrar só caixas do tamanho dos bosses
+            if 60 < w_box < 200 and 60 < h_box < 200:
+
+                crop = area[y:y+h_box, x:x+w_box]
+
+                tem_check = tem_check_azul(crop)
+
+                bosses_detectados.append({
+                    "x": x,
+                    "y": y,
+                    "check": tem_check
+                })
+
+        # ordenar por posição (top → bottom, left → right)
+        bosses_detectados = sorted(bosses_detectados, key=lambda b: (b["y"], b["x"]))
+
+        faltando = [b for b in bosses_detectados if not b["check"]]
 
         return {
-            "faltando_posicoes": faltando
+            "total_detectados": len(bosses_detectados),
+            "faltando": faltando
         }
 
     except Exception as e:
