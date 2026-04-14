@@ -12,12 +12,10 @@ app = FastAPI()
 # 🔥 LOAD TEMPLATES
 # -------------------------------
 
-# check
 check_template = cv2.imread("imgs/check.jpg", 0)
 if check_template is None:
     raise Exception("check.jpg não encontrado em imgs/check.jpg")
 
-# bosses
 boss_templates = {}
 if os.path.exists("imgs/bosses"):
     for file in os.listdir("imgs/bosses"):
@@ -105,12 +103,25 @@ async def analisar(file: UploadFile):
         for cnt in contours:
             x, y, w, h = cv2.boundingRect(cnt)
 
-            if 80 < w < 300 and 80 < h < 300:
+            ratio = w / h
+
+            # 🔥 filtro refinado
+            if 80 < w < 300 and 80 < h < 300 and 0.7 < ratio < 1.3:
 
                 crop = img[y:y+h, x:x+w]
                 crop_gray = gray[y:y+h, x:x+w]
 
                 if crop.shape[0] == 0:
+                    continue
+
+                # 🔥 remove fundo vazio
+                media = np.mean(crop_gray)
+                if media < 30 or media > 220:
+                    continue
+
+                # 🔥 remove áreas sem detalhe
+                std = np.std(crop_gray)
+                if std < 20:
                     continue
 
                 if not tem_check(crop_gray):
@@ -131,7 +142,7 @@ async def analisar(file: UploadFile):
 
 
 # -------------------------------
-# 📦 EXTRAIR BOSSES (ZIP)
+# 📦 EXTRAIR BOSSES
 # -------------------------------
 
 @app.post("/extrair")
@@ -154,12 +165,22 @@ async def extrair(file: UploadFile):
         for cnt in contours:
             x, y, w, h = cv2.boundingRect(cnt)
 
-            if 80 < w < 300 and 80 < h < 300:
+            ratio = w / h
+
+            if 80 < w < 300 and 80 < h < 300 and 0.7 < ratio < 1.3:
 
                 crop = img[y:y+h, x:x+w]
                 crop_gray = gray[y:y+h, x:x+w]
 
                 if crop.shape[0] == 0:
+                    continue
+
+                media = np.mean(crop_gray)
+                if media < 30 or media > 220:
+                    continue
+
+                std = np.std(crop_gray)
+                if std < 20:
                     continue
 
                 if not tem_check(crop_gray):
@@ -170,7 +191,6 @@ async def extrair(file: UploadFile):
                     boss_files.append(filename)
                     count += 1
 
-        # cria zip
         zip_path = "/tmp/bosses.zip"
 
         with zipfile.ZipFile(zip_path, 'w') as zipf:
