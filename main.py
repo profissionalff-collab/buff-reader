@@ -2,10 +2,15 @@ from fastapi import FastAPI, UploadFile
 import shutil
 import cv2
 import numpy as np
+import easyocr
+import re
 
 app = FastAPI()
 
-# 🔥 carrega template (garante que existe)
+# 🔥 OCR leve só pra número
+reader = easyocr.Reader(['en'], gpu=False)
+
+# 🔥 template check
 check_template = cv2.imread("imgs/check.jpg", 0)
 
 if check_template is None:
@@ -19,21 +24,37 @@ def home():
 
 def tem_check(img_gray):
     try:
-        h_img, w_img = img_gray.shape
-        h_tmp, w_tmp = check_template.shape
+        img_gray = cv2.resize(img_gray, (60, 60))
+        template = cv2.resize(check_template, (30, 30))
 
-        # 🔥 evita erro do OpenCV
-        if h_img < h_tmp or w_img < w_tmp:
-            return False
-
-        # 🔥 aplica template matching
-        res = cv2.matchTemplate(img_gray, check_template, cv2.TM_CCOEFF_NORMED)
-        max_val = np.max(res)
-
-        return max_val > 0.6  # ajuste fino depois
-
+        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        return np.max(res) > 0.5
     except:
         return False
+
+
+def extrair_progresso(crop):
+    try:
+        # 🔥 área onde fica o número dentro do card
+        numero_area = crop[70:120, 10:120]
+
+        numero_area = cv2.cvtColor(numero_area, cv2.COLOR_BGR2GRAY)
+
+        results = reader.readtext(numero_area)
+
+        for (_, text, _) in results:
+            match = re.search(r'(\d+)/(\d+)', text)
+            if match:
+                atual = int(match.group(1))
+                total = int(match.group(2))
+
+                if atual < total:
+                    return atual, total
+
+        return None, None
+
+    except:
+        return None, None
 
 
 @app.post("/analisar")
@@ -51,33 +72,48 @@ async def analisar(file: UploadFile):
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 🔥 COORDENADAS FIXAS (AJUSTAR UMA VEZ)
+        # 🔥 MAPA DE BOSSES (AJUSTAR UMA VEZ)
         bosses = [
-            {"nome": "boss_topo_direita", "x": 950, "y": 150},
-            {"nome": "boss_centro", "x": 850, "y": 300},
-            {"nome": "boss_direita", "x": 1050, "y": 300},
-            {"nome": "boss_esquerda", "x": 750, "y": 450},
-            {"nome": "boss_meio", "x": 950, "y": 450},
-            {"nome": "boss_direita2", "x": 1150, "y": 450},
+            {"nome": "E-Bolt 5", "x": 750, "y": 450},
+            {"nome": "Centro 1", "x": 950, "y": 450},
+            {"nome": "Direita 1", "x": 1150, "y": 450},
+            {"nome": "Topo", "x": 950, "y": 150},
+            {"nome": "Centro Esquerda", "x": 850, "y": 300},
+            {"nome": "Centro Direita", "x": 1050, "y": 300},
         ]
 
-        faltando = []
+        resultados = []
 
         for boss in bosses:
             x = boss["x"]
             y = boss["y"]
 
-            # 🔥 tamanho do card
-            crop = gray[y:y+120, x:x+120]
+            crop = img[y:y+120, x:x+120]
 
             if crop.shape[0] == 0 or crop.shape[1] == 0:
                 continue
 
-            if not tem_check(crop):
-                faltando.append(boss["nome"])
+            crop_gray = gray[y:y+120, x:x+120]
+
+            if not tem_check(crop_gray):
+
+                atual, total = extrair_progresso(crop)
+
+                nivel = None
+                progresso = None
+
+                if atual is not None:
+                    progresso = f"{atual}/{total}"
+                    nivel = atual + 1
+
+                resultados.append({
+                    "boss": boss["nome"],
+                    "progresso": progresso,
+                    "nivel": nivel
+                })
 
         return {
-            "faltando": faltando
+            "faltando": resultados
         }
 
     except Exception as e:
