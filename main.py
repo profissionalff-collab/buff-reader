@@ -2,10 +2,12 @@ from fastapi import FastAPI, UploadFile
 from fastapi.responses import FileResponse
 import shutil
 import cv2
+from ultralytics import YOLO
 
 from services.extract_bosses import extrair_bosses
 from services.detector import identificar_boss, tem_check
 
+model = YOLO("best.pt")  # seu modelo treinado
 app = FastAPI()
 
 # 🔥 carregar template check
@@ -31,7 +33,30 @@ async def extrair(file: UploadFile):
     zip_path = extrair_bosses(path)
 
     return FileResponse(zip_path, filename="bosses.zip")
+#
+# detectar bosses
+#
+@app.post("/detect")
+async def detect(file: UploadFile):
+    path = f"/tmp/{file.filename}"
 
+    with open(path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    results = model(path)
+
+    bosses = []
+
+    for r in results:
+        for box in r.boxes:
+            cls = int(box.cls[0])
+            name = model.names[cls]
+
+            bosses.append(name)
+
+    return {
+        "bosses": bosses
+    }
 
 # -------------------------------
 # 🔍 ANALISAR BOSSES
