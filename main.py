@@ -57,6 +57,20 @@ async def detect(file: UploadFile):
     return {
         "bosses": bosses
     }
+####
+#match bosses com cv2 match
+####
+app.post('/match', async (req, res) => {
+  const { image, template } = req.body;
+
+  // chama script python
+  const { exec } = require('child_process');
+
+  exec(`python match.py ${image} ${template}`, (err, stdout) => {
+    if (err) return res.status(500).send(err.message);
+    res.json({ result: stdout });
+  });
+});
 
 # -------------------------------
 # 🔍 ANALISAR BOSSES
